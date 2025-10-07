@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ASCII-поздравление (мини-мультфильм → портрет → сердце)</title>
+<style>
+  :root { --bg:#0b0e14; --fg:#e5e7eb; --muted:#94a3b8; --accent:#60a5fa; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--bg); color: var(--fg);
+    display: grid; min-height: 100svh; place-items: center;
+  }
+  .card {
+    width: min(1200px, 96vw); padding: 20px; border-radius: 14px;
+    background: #111827; box-shadow: 0 10px 40px rgba(0,0,0,.35);
+    border: 1px solid #1f2937;
+  }
+  h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: .3px; }
+  p.hint { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; margin-bottom: 12px; }
+  .control { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+  .control input[type="range"] { width: 200px; }
+  .btn {
+    appearance: none; border: 1px solid #334155; background: #0f172a; color: var(--fg);
+    padding: 9px 12px; border-radius: 10px; font-size: 13px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .drop {
+    border: 2px dashed #334155; border-radius: 12px; padding: 16px;
+    display: grid; place-items: center; text-align: center; color: var(--muted); margin-bottom: 12px;
+  }
+  .drop.drag { border-color: var(--accent); color: var(--fg); }
+  pre#out {
+    margin: 0; white-space: pre; overflow: auto; max-height: 62svh;
+    font-size: 9.8px; line-height: 9.8px; letter-spacing: .35px;
+    background: #0b0e14; border: 1px solid #1f2937; border-radius: 12px; padding: 12px;
+    transition: opacity .8s ease;
+  }
+  #caption {
+    margin-top: 10px; min-height: 1.4em; font-size: 16px; color: var(--fg); letter-spacing: .3px;
+    opacity: 0; transition: opacity .6s ease;
+  }
+  .show { opacity: 1 !important; }
+  .caret { display:inline-block; width: .6ch; }
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+  .caret::after { content: "▌"; animation: blink 1s steps(1) infinite; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .spacer { flex: 1 1 auto; }
+  .note { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Мама, с Днем Рождения!</h1>
+    <p class="hint">Нажми «Проиграть» чтобы увидеть поздравление. Звук по желанию.</p>
+
+    <div class="controls">
+      <label class="control">Звук (мелодия)
+        <input id="sound" type="checkbox" checked />
+      </label>
+      <div class="spacer"></div>
+      <div class="row">
+        <button class="btn" id="play">▶ Проиграть</button>
+        <button class="btn" id="replay">🔄 Повторить</button>
+      </div>
+    </div>
+
+    <pre id="out">«Я люблю тебя, с днём рождения!»</pre>
+    <div id="caption"></div>
+
+    <p class="note">Невероятно скучаю!</p>
+  </div>
+
+<script>
+(() => {
+  // Узлы
+  const $ = id => document.getElementById(id);
+  const out = $('out'), caption = $('caption'), soundEl = $('sound');
+
+  // Служебные
+  function clamp(v,a,b){ return Math.min(b, Math.max(a, v)); }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  // Размеры для анимации
+  const rows = 50;
+  const cols = 120;
+
+  // ---------- Кинематографичный мультик: сцены, камера, частицы ----------
+  function animateIntro(durationMs = 8000, fps = 30) {
+    const W = cols || 120, H = rows || 60;
+    const start = performance.now();
+    let tPrev = start;
+
+    // === ЧАСТИЦЫ ===
+    const particles = []; // {x, y, vx, vy, char, life, maxLife, trail, color}
+    const sparks = [];    // рой искр
+    const rain = [];      // дождь из угасающих частиц
+    const letters = [];   // частицы для набора текста
+    const dubaiText = []; // текст о подарке в Дубае
+
+    // Типы салютов
+    function createBurst(x, y, type = 'radial') {
+      const count = type === 'fountain' ? 60 : type === 'spiral' ? 80 : 50;
+      const speed = type === 'fountain' ? 1.2 : type === 'mega' ? 2.5 : 1.8;
+      
+      for (let i = 0; i < count; i++) {
+        const angle = type === 'spiral' 
+          ? (i / count) * Math.PI * 6 + Math.random() * 0.3
+          : Math.random() * Math.PI * 2;
+        
+        const r = type === 'fountain' ? Math.random() * 0.7 + 0.3 : 1;
+        const vx = Math.cos(angle) * speed * r * (0.7 + Math.random() * 0.6);
+        const vy = type === 'fountain' 
+          ? -Math.abs(Math.sin(angle)) * speed * r - Math.random() * 2
+          : Math.sin(angle) * speed * r * (0.7 + Math.random() * 0.6);
+        
+        const chars = type === 'mega' ? ['●','◉','○','◎','✦','✧','★','☆'] : ['*','+','·','∙','•','×','✦','✧'];
+        particles.push({
+          x, y, vx, vy,
+          char: chars[Math.floor(Math.random() * chars.length)],
+          life: 1,
+          maxLife: type === 'fountain' ? 1.4 + Math.random() * 0.8 : 1.2 + Math.random() * 0.6,
+          trail: type === 'mega' ? 4 : 2,
+          gravity: type === 'fountain' ? 0.15 : 0.08
+        });
+      }
+    }
+
+    // Рой искр (постоянно движущиеся)
+    function addSparks(count = 40) {
+      for (let i = 0; i < count; i++) {
+        sparks.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          vx: (Math.random() - 0.5) * 3,
+          vy: (Math.random() - 0.5) * 2,
+          char: ['·','∙','˙','•'][Math.floor(Math.random() * 4)],
+          layer: Math.random() // для параллакса
+        });
+      }
+    }
+
+    // Дождь из частиц
+    function addRain(count = 30) {
+      for (let i = 0; i < count; i++) {
+        rain.push({
+          x: Math.random() * W,
+          y: -Math.random() * H * 0.3,
+          vy: 0.8 + Math.random() * 1.2,
+          char: ['·','`','˙','\'',','][Math.floor(Math.random() * 5)],
+          life: 1,
+          maxLife: 1.5 + Math.random()
+        });
+      }
+    }
+
+    // Набор текста частицами
+    function createTextParticles(text, targetY) {
+      const startX = Math.floor((W - text.length) / 2);
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === ' ') continue;
+        letters.push({
+          char: text[i],
+          tx: startX + i, // target x
+          ty: targetY,    // target y
+          x: Math.random() * W,
+          y: -Math.random() * H * 0.5,
+          vx: 0, vy: 0,
+          arrived: false
+        });
+      }
+    }
+
+    // Текст о подарке в Дубае (многострочный)
+    function createDubaiMessage() {
+      const lines = [
+        'ТВОЙ ПОДАРОК',
+        'ЖДЁТ ТЕБЯ',
+        'В ДУБАЕ! ✈'
+      ];
+      const startY = Math.floor(H / 2) - lines.length - 2;
+      
+      lines.forEach((line, lineIdx) => {
+        const startX = Math.floor((W - line.length) / 2);
+        for (let i = 0; i < line.length; i++) {
+          if (line[i] === ' ') continue;
+          dubaiText.push({
+            char: line[i],
+            tx: startX + i,
+            ty: startY + lineIdx * 2,
+            x: Math.random() * W,
+            y: -Math.random() * H * 0.5,
+            vx: 0, vy: 0,
+            arrived: false
+          });
+        }
+      });
+    }
+
+    // === КАМЕРА (панорама и параллакс) ===
+    let cameraX = 0, cameraY = 0;
+    
+    // === СЦЕНАРИЙ ===
+    // Сцена 1 (0-2s): Рой искр + фонтаны
+    // Сцена 2 (2-4s): Салюты разных типов + дождь частиц + камера панорамирует
+    // Сцена 3 (4-5.5s): Мега-салют + текст "С ДНЁМ РОЖДЕНИЯ!"
+    // Сцена 4 (5.5-8s): Текст очищается, появляется сообщение о Дубае + финальные салюты
+
+    // Аудио
+    let stopSound = () => {};
+    if (soundEl.checked) {
+      try {
+        const ctxA = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctxA.createOscillator();
+        const g = ctxA.createGain();
+        o.type = 'triangle'; o.connect(g); g.connect(ctxA.destination);
+        const now = ctxA.currentTime;
+        const notes = [523,587,659,784,880,784,659,587,523,659,784,880,1047,880,784,659];
+        notes.forEach((f, i) => {
+          const t = now + i*0.18;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.10, t+0.04);
+          g.gain.exponentialRampToValueAtTime(0.001, t+0.16);
+          o.frequency.setValueAtTime(f, t);
+        });
+        o.start();
+        o.stop(now + Math.min(durationMs/1000, 8.5));
+        stopSound = () => { try { o.stop(); ctxA.close(); } catch(e){} };
+      } catch(e) { /* игнорируем */ }
+    }
+
+    // Инициализация
+    addSparks(80);
+    let fountainSpawned = false, textSpawned = false, dubaiSpawned = false, lettersClearedForDubai = false;
+
+    return new Promise(resolve => {
+      function put(g, x, y, ch) {
+        const cx = Math.floor(x - cameraX), cy = Math.floor(y - cameraY);
+        if (cy>=0 && cy<g.length && cx>=0 && cx<g[0].length && ch !== ' ') {
+          g[cy][cx] = ch;
+        }
+      }
+
+      function frame(now) {
+        const dt = Math.min((now - tPrev) / 16, 3); tPrev = now;
+        const elapsed = now - start;
+        const t = elapsed / durationMs; // 0..1
+
+        // === УПРАВЛЕНИЕ СЦЕНАМИ ===
+        // Сцена 1: Фонтаны снизу (0-0.25)
+        if (t < 0.25 && !fountainSpawned) {
+          fountainSpawned = true;
+          createBurst(W/2, H - 5, 'fountain');
+          createBurst(W/4, H - 3, 'fountain');
+          createBurst(3*W/4, H - 3, 'fountain');
+        }
+
+        // Сцена 2: Разные салюты (0.25-0.5)
+        if (t >= 0.25 && t < 0.5) {
+          if (Math.random() < 0.06) {
+            createBurst(
+              10 + Math.random() * (W - 20),
+              5 + Math.random() * (H * 0.4),
+              ['radial','spiral'][Math.floor(Math.random() * 2)]
+            );
+          }
+          // Камера панорамирует вправо-влево
+          cameraX = Math.sin(t * Math.PI * 3) * 8;
+        }
+
+        // Дождь частиц (0.3-0.7)
+        if (t >= 0.3 && t < 0.7) {
+          if (Math.random() < 0.15) addRain(5);
+        }
+
+        // Сцена 3: Мега-салют в центре (0.5-0.65)
+        if (t >= 0.5 && t < 0.65) {
+          if (Math.random() < 0.08) {
+            createBurst(W/2 + (Math.random()-0.5)*20, H/3, 'mega');
+          }
+        }
+
+        // Текст "С ДНЁМ РОЖДЕНИЯ!" (0.5-0.69)
+        if (t >= 0.5 && t < 0.69 && !textSpawned) {
+          textSpawned = true;
+          createTextParticles('С  ДНЁМ  РОЖДЕНИЯ!', Math.floor(H/2));
+        }
+
+        // Очистка первого текста для сообщения о Дубае (0.69)
+        if (t >= 0.69 && !lettersClearedForDubai) {
+          lettersClearedForDubai = true;
+          letters.length = 0; // очищаем старый текст
+        }
+
+        // Сцена 4: Сообщение о Дубае (0.7-1.0)
+        if (t >= 0.7 && !dubaiSpawned) {
+          dubaiSpawned = true;
+          createDubaiMessage();
+        }
+
+        // Финальные салюты во время показа сообщения о Дубае (0.75-0.95)
+        if (t >= 0.75 && t < 0.95) {
+          if (Math.random() < 0.05) {
+            createBurst(
+              15 + Math.random() * (W - 30),
+              8 + Math.random() * (H * 0.3),
+              'mega'
+            );
+          }
+        }
+
+        // === ФИЗИКА И ОТРИСОВКА ===
+        const grid = Array.from({length:H}, () => Array(W).fill(' '));
+
+        // Рой искр (параллакс: дальние медленнее)
+        sparks.forEach(s => {
+          const parallaxFactor = 0.3 + s.layer * 0.7;
+          s.x += s.vx * dt * 0.1 * parallaxFactor;
+          s.y += s.vy * dt * 0.1 * parallaxFactor;
+          if (s.x < 0) s.x = W; if (s.x > W) s.x = 0;
+          if (s.y < 0) s.y = H; if (s.y > H) s.y = 0;
+          put(grid, s.x, s.y, s.char);
+        });
+
+        // Дождь
+        for (let i = rain.length - 1; i >= 0; i--) {
+          const r = rain[i];
+          r.y += r.vy * dt;
+          r.life -= dt * 0.02;
+          if (r.y > H || r.life <= 0) { rain.splice(i, 1); continue; }
+          const alpha = Math.max(0, r.life / r.maxLife);
+          if (alpha > 0.3) put(grid, r.x, r.y, r.char);
+        }
+
+        // Салюты (основные частицы)
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.vy += p.gravity * dt;
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.life -= dt * 0.02;
+
+          if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+          const alpha = p.life / p.maxLife;
+          // Угасание: меняем символ
+          let ch = p.char;
+          if (alpha < 0.3) ch = '·';
+          else if (alpha < 0.5) ch = '+';
+          
+          put(grid, p.x, p.y, ch);
+          
+          // След (trail)
+          if (p.trail > 0 && Math.random() < 0.3) {
+            put(grid, p.x - p.vx * 0.5, p.y - p.vy * 0.5, '·');
+          }
+        }
+
+        // Текст из частиц (притяжение к целевой позиции)
+        letters.forEach(l => {
+          if (!l.arrived) {
+            const dx = l.tx - l.x, dy = l.ty - l.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 1) { l.arrived = true; l.x = l.tx; l.y = l.ty; }
+            else {
+              const force = 0.15;
+              l.vx += dx * force; l.vy += dy * force;
+              l.vx *= 0.85; l.vy *= 0.85; // трение
+              l.x += l.vx; l.y += l.vy;
+            }
+          }
+          put(grid, l.x, l.y, l.char);
+        });
+
+        // Текст о Дубае (аналогично letters)
+        dubaiText.forEach(d => {
+          if (!d.arrived) {
+            const dx = d.tx - d.x, dy = d.ty - d.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 1) { d.arrived = true; d.x = d.tx; d.y = d.ty; }
+            else {
+              const force = 0.15;
+              d.vx += dx * force; d.vy += dy * force;
+              d.vx *= 0.85; d.vy *= 0.85;
+              d.x += d.vx; d.y += d.vy;
+            }
+          }
+          put(grid, d.x, d.y, d.char);
+        });
+
+        out.textContent = grid.map(r=>r.join('')).join('\n');
+
+        if (elapsed < durationMs) requestAnimationFrame(frame);
+        else { stopSound(); resolve(); }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  // ---------- Анимации переходов ----------
+  function fadeOut(el) {
+    return new Promise(res => {
+      el.addEventListener('transitionend', function h(e){
+        if (e.propertyName === 'opacity') { el.removeEventListener('transitionend', h); res(); }
+      }, { once: true });
+      void el.offsetHeight; el.style.opacity = 0;
+    });
+  }
+  function fadeIn(el) {
+    return new Promise(res => {
+      el.addEventListener('transitionend', function h(e){
+        if (e.propertyName === 'opacity') { el.removeEventListener('transitionend', h); res(); }
+      }, { once: true });
+      void el.offsetHeight; el.style.opacity = 1;
+    });
+  }
+
+  // Сердце
+  function generateHeart(w, h) {
+    const CHARS = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+    const sx = 1.6, sy = 1.4;
+    const lines = [];
+    for (let j=0;j<h;j++){
+      let line = '';
+      const y = (1 - (j / (h-1)) * 2) * sy; // инверсия Y для правильной ориентации
+      for (let i=0;i<w;i++){
+        const x = ((i / (w-1)) * 2 - 1) * sx;
+        const f = Math.pow(x*x + y*y - 1, 3) - x*x*y*y*y;
+        if (f <= 0) {
+          const t = clamp(1 - clamp((f + 1.2)/1.2, 0, 1), 0, 1);
+          const idx = Math.floor(t * (CHARS.length - 1));
+          line += CHARS[CHARS.length - 1 - idx];
+        } else {
+          line += ' ';
+        }
+      }
+      lines.push(line);
+    }
+    return lines.join('\n');
+  }
+
+  async function typewriter(element, text, speed=36) {
+    element.textContent = '';
+    element.classList.add('show');
+    let i = 0;
+    const caret = document.createElement('span');
+    caret.className = 'caret'; element.appendChild(caret);
+    return new Promise(resolve => {
+      const timer = setInterval(() => {
+        caret.before(text[i++] || '');
+        if (i >= text.length) { clearInterval(timer); caret.remove(); resolve(); }
+      }, speed);
+    });
+  }
+
+  // Последовательность
+  async function playSequence() {
+    caption.classList.remove('show'); caption.textContent = '';
+    // 1) Кинематографичный мультик 8 сек (с сообщением о Дубае)
+    await animateIntro(8000, 30);
+    await wait(500);
+    // 2) Мультик исчезает → сердце появляется
+    await fadeOut(out);
+    const heart = generateHeart(cols, rows);
+    out.textContent = heart;
+    await fadeIn(out);
+    await wait(900);
+    // 3) Подпись
+    await typewriter(caption, 'Я люблю тебя, с днём рождения!', 36);
+  }
+
+  // Кнопки
+  $('play').onclick = () => { out.style.opacity = 1; playSequence(); };
+  $('replay').onclick = () => { out.style.opacity = 1; playSequence(); };
+})();
+</script>
+</body>
+</html>
