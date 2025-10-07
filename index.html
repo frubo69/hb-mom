@@ -42,7 +42,7 @@
   }
   @media (max-width: 768px) {
     pre#out {
-      font-size: 4px; line-height: 4px; letter-spacing: 0px;
+      font-size: 6.5px; line-height: 6.5px; letter-spacing: 0.2px;
       padding: 8px; max-height: 70svh;
     }
     .card {
@@ -113,8 +113,8 @@
 
   // Размеры для анимации (адаптивно под размер экрана)
   const isMobile = window.innerWidth <= 768;
-  const rows = isMobile ? 35 : 50;
-  const cols = isMobile ? 80 : 120;
+  const rows = isMobile ? 45 : 50;
+  const cols = isMobile ? 100 : 120;
 
   // ---------- Кинематографичный мультик: сцены, камера, частицы ----------
   function animateIntro(durationMs = 8000, fps = isMobile ? 24 : 30) {
@@ -131,7 +131,7 @@
 
     // Типы салютов
     function createBurst(x, y, type = 'radial') {
-      const particleMultiplier = isMobile ? 0.6 : 1; // Меньше частиц на мобильных
+      const particleMultiplier = isMobile ? 0.75 : 1; // Немного меньше частиц на мобильных
       const count = Math.floor((type === 'fountain' ? 60 : type === 'spiral' ? 80 : 50) * particleMultiplier);
       const speed = type === 'fountain' ? 1.2 : type === 'mega' ? 2.5 : 1.8;
       
@@ -262,7 +262,7 @@
     }
 
     // Инициализация
-    addSparks(isMobile ? 40 : 80); // Меньше искр на мобильных
+    addSparks(isMobile ? 60 : 80); // Немного меньше искр на мобильных
     let fountainSpawned = false, textSpawned = false, dubaiSpawned = false, lettersClearedForDubai = false;
 
     return new Promise(resolve => {
